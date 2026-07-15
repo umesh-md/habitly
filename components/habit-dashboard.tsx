@@ -1,7 +1,7 @@
 "use client"
 
 import { CheckCircle2, Flame, TrendingUp } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AddHabitDialog } from "@/components/add-habit-dialog"
 import { HabitRow } from "@/components/habit-row"
 import { ProgressRing } from "@/components/progress-ring"
@@ -26,6 +26,11 @@ export function HabitDashboard() {
   const [habits, setHabits] = useState<Habit[]>(() => createInitialHabits())
   const [selected, setSelected] = useState<Date>(today)
   const [weekRef, setWeekRef] = useState<Date>(today)
+  const [timeOfDay, setTimeOfDay] = useState<string>("")
+
+  useEffect(() => {
+    setTimeOfDay(greeting())
+  }, [])
 
   const selectedIsToday = isSameDay(selected, today)
   const rate = completionRate(habits, selected)
@@ -85,7 +90,7 @@ export function HabitDashboard() {
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-brand">Cadence</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground text-balance sm:text-3xl">
-            Good {greeting()}, let&apos;s build momentum
+            {timeOfDay ? `Good ${timeOfDay}, ` : ""}let&apos;s build momentum
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {today.toLocaleDateString("en-US", {
