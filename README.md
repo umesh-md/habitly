@@ -1,0 +1,2 @@
+# habitly
+AI Exercises
