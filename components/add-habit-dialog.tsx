@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 import { HABIT_ICONS } from "@/lib/habits"
 
 type AddHabitDialogProps = {
-  onAdd: (name: string, icon: string) => void
+  onAdd: (name: string) => void
 }
 
 export function AddHabitDialog({ onAdd }: AddHabitDialogProps) {
@@ -26,7 +26,7 @@ export function AddHabitDialog({ onAdd }: AddHabitDialogProps) {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) return
-    onAdd(trimmed, icon)
+    onAdd(trimmed)
     reset()
     setOpen(false)
   }
