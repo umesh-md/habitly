@@ -7,14 +7,18 @@ import { HabitRow } from "@/components/habit-row"
 import { ProgressRing } from "@/components/progress-ring"
 import { WeeklyCalendar } from "@/components/weekly-calendar"
 import {
-  completionRate,
   createInitialHabits,
-  currentStreak,
   dateKey,
-  isCompleted,
   isSameDay,
   type Habit,
 } from "@/lib/habits"
+import {
+  getHabits,
+  getAllHabitLogs,
+  createHabit,
+  deleteHabit,
+  logHabitCompletion,
+} from "@/lib/actions/habits"
 
 export function HabitDashboard() {
   const today = useMemo(() => {
@@ -23,53 +27,103 @@ export function HabitDashboard() {
     return d
   }, [])
 
-  const [habits, setHabits] = useState<Habit[]>(() => createInitialHabits())
+  const [habits, setHabits] = useState<Habit[]>([])
   const [selected, setSelected] = useState<Date>(today)
   const [weekRef, setWeekRef] = useState<Date>(today)
   const [timeOfDay, setTimeOfDay] = useState<string>("")
+  const [loading, setLoading] = useState(true)
 
+  // Load initial habits and logs from Supabase
   useEffect(() => {
+    loadHabits()
     setTimeOfDay(greeting())
   }, [])
 
-  const selectedIsToday = isSameDay(selected, today)
-  const rate = completionRate(habits, selected)
-  const doneCount = habits.filter((h) => isCompleted(h, selected)).length
-
-  const bestStreak = useMemo(
-    () => habits.reduce((max, h) => Math.max(max, currentStreak(h, today)), 0),
-    [habits, today],
-  )
-
-  function toggleHabit(id: string) {
-    const key = dateKey(selected)
-    setHabits((prev) =>
-      prev.map((h) => {
-        if (h.id !== id) return h
-        const has = h.completed.includes(key)
+  async function loadHabits() {
+    try {
+      setLoading(true)
+      const dbHabits = await getHabits()
+      
+      // Get the last 30 days of logs
+      const thirtyDaysAgo = new Date(today)
+      thirtyDaysAgo.setDate(today.getDate() - 30)
+      const logs = await getAllHabitLogs(thirtyDaysAgo, today)
+      
+      // Map Supabase habits to app format
+      const habitsWithLogs: Habit[] = dbHabits.map((h: any) => {
+        const completed = logs
+          .filter((log: any) => log.habit_id === h.id)
+          .map((log: any) => log.completed_date)
+        
         return {
-          ...h,
-          completed: has ? h.completed.filter((d) => d !== key) : [...h.completed, key],
+          id: h.id,
+          name: h.name,
+          icon: "💪", // Default icon - could be stored in DB
+          completed,
+          createdAt: h.created_at,
         }
-      }),
-    )
+      })
+      
+      setHabits(habitsWithLogs)
+    } catch (error) {
+      console.error("[v0] Error loading habits:", error)
+      // Fall back to demo data if not authenticated
+      setHabits(createInitialHabits())
+    } finally {
+      setLoading(false)
+    }
   }
 
-  function addHabit(name: string, icon: string) {
-    setHabits((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        name,
-        icon,
-        completed: [],
-        createdAt: dateKey(today),
-      },
-    ])
+  const selectedIsToday = isSameDay(selected, today)
+  
+  const doneCount = habits.filter((h) => {
+    const key = dateKey(selected)
+    return h.completed.includes(key)
+  }).length
+
+  const rate = habits.length > 0 ? Math.round((doneCount / habits.length) * 100) : 0
+
+  const bestStreak = useMemo(() => {
+    return habits.reduce((max, h) => {
+      let streak = 0
+      let checkDate = new Date(today)
+      
+      while (streak < 365) {
+        const key = dateKey(checkDate)
+        if (!h.completed.includes(key)) break
+        streak++
+        checkDate.setDate(checkDate.getDate() - 1)
+      }
+      
+      return Math.max(max, streak)
+    }, 0)
+  }, [habits, today])
+
+  async function toggleHabit(id: string) {
+    try {
+      await logHabitCompletion(id, selected)
+      await loadHabits()
+    } catch (error) {
+      console.error("[v0] Error toggling habit:", error)
+    }
   }
 
-  function deleteHabit(id: string) {
-    setHabits((prev) => prev.filter((h) => h.id !== id))
+  async function addHabit(name: string) {
+    try {
+      await createHabit(name, "daily")
+      await loadHabits()
+    } catch (error) {
+      console.error("[v0] Error adding habit:", error)
+    }
+  }
+
+  async function deleteHabitFn(id: string) {
+    try {
+      await deleteHabit(id)
+      await loadHabits()
+    } catch (error) {
+      console.error("[v0] Error deleting habit:", error)
+    }
   }
 
   function shiftWeek(direction: -1 | 1) {
@@ -123,17 +177,26 @@ export function HabitDashboard() {
             </span>
           </div>
 
-          {habits.length > 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-card py-14">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand border-transparent border-t-brand" />
+              <p className="text-sm text-muted-foreground">Loading habits...</p>
+            </div>
+          ) : habits.length > 0 ? (
             <ul className="flex flex-col gap-2.5">
-              {habits.map((habit) => (
-                <HabitRow
-                  key={habit.id}
-                  habit={habit}
-                  completed={isCompleted(habit, selected)}
-                  onToggle={() => toggleHabit(habit.id)}
-                  onDelete={() => deleteHabit(habit.id)}
-                />
-              ))}
+              {habits.map((habit) => {
+                const key = dateKey(selected)
+                const completed = habit.completed.includes(key)
+                return (
+                  <HabitRow
+                    key={habit.id}
+                    habit={habit}
+                    completed={completed}
+                    onToggle={() => toggleHabit(habit.id)}
+                    onDelete={() => deleteHabitFn(habit.id)}
+                  />
+                )
+              })}
             </ul>
           ) : (
             <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-card py-14 text-center">
@@ -168,7 +231,7 @@ export function HabitDashboard() {
             <StatCard
               icon={<CheckCircle2 className="size-4 text-brand" />}
               label="Done today"
-              value={`${completionRate(habits, today) === 0 ? 0 : habits.filter((h) => isCompleted(h, today)).length}`}
+              value={`${habits.filter((h) => h.completed.includes(dateKey(today))).length}`}
               unit={`/ ${habits.length}`}
             />
             <StatCard
@@ -180,7 +243,7 @@ export function HabitDashboard() {
             <StatCard
               icon={<CheckCircle2 className="size-4 text-brand" />}
               label="Today's rate"
-              value={`${completionRate(habits, today)}`}
+              value={`${habits.length > 0 ? Math.round((habits.filter((h) => h.completed.includes(dateKey(today))).length / habits.length) * 100) : 0}`}
               unit="%"
             />
           </div>
