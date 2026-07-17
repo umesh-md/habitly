@@ -77,49 +77,4 @@ export function completionRate(habits: Habit[], date: Date): number {
   return Math.round((done / habits.length) * 100)
 }
 
-function offsetKey(daysAgo: number): string {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  d.setDate(d.getDate() - daysAgo)
-  return dateKey(d)
-}
 
-export function createInitialHabits(): Habit[] {
-  return [
-    {
-      id: "h1",
-      name: "Drink 8 glasses of water",
-      icon: "droplet",
-      completed: [offsetKey(0), offsetKey(1), offsetKey(2), offsetKey(3), offsetKey(4)],
-      createdAt: offsetKey(30),
-    },
-    {
-      id: "h2",
-      name: "Read for 30 minutes",
-      icon: "book-open",
-      completed: [offsetKey(1), offsetKey(2), offsetKey(3)],
-      createdAt: offsetKey(30),
-    },
-    {
-      id: "h3",
-      name: "Morning workout",
-      icon: "dumbbell",
-      completed: [offsetKey(0), offsetKey(2), offsetKey(4), offsetKey(5)],
-      createdAt: offsetKey(30),
-    },
-    {
-      id: "h4",
-      name: "Meditate",
-      icon: "brain",
-      completed: [offsetKey(2), offsetKey(3), offsetKey(6)],
-      createdAt: offsetKey(30),
-    },
-    {
-      id: "h5",
-      name: "Sleep before 11pm",
-      icon: "moon",
-      completed: [],
-      createdAt: offsetKey(2),
-    },
-  ]
-}

@@ -2,18 +2,14 @@
 
 import { createClient } from '@/lib/supabase/server'
 
-const DEMO_HABITS = [
-  { id: 'h1', user_id: 'demo', name: 'Morning Run', frequency: 'daily', created_at: new Date().toISOString() },
-  { id: 'h2', user_id: 'demo', name: 'Read', frequency: 'daily', created_at: new Date().toISOString() },
-  { id: 'h3', user_id: 'demo', name: 'Meditate', frequency: 'daily', created_at: new Date().toISOString() },
-]
-
 export async function getHabits() {
   try {
     const supabase = await createClient()
     
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return DEMO_HABITS
+    if (!user) {
+      return { data: [], isGuest: true }
+    }
 
     const { data, error } = await supabase
       .from('habits')
@@ -22,10 +18,11 @@ export async function getHabits() {
       .order('created_at', { ascending: false })
 
     if (error) throw error
-    return data || DEMO_HABITS
+    return { data: data || [], isGuest: false }
   } catch (error) {
-    console.log('[v0] Using demo habits due to:', error instanceof Error ? error.message : 'unknown error')
-    return DEMO_HABITS
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Database/Supabase Error:', error)
+    return { error: message }
   }
 }
 
@@ -35,14 +32,7 @@ export async function createHabit(name: string, frequency: string = 'daily') {
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      // Return demo habit when not authenticated
-      return {
-        id: `h${Date.now()}`,
-        user_id: 'demo',
-        name,
-        frequency,
-        created_at: new Date().toISOString(),
-      }
+      return { isGuest: true }
     }
 
     const { data, error } = await supabase
@@ -57,17 +47,11 @@ export async function createHabit(name: string, frequency: string = 'daily') {
       .select()
 
     if (error) throw error
-    return data?.[0]
+    return { data: data?.[0], isGuest: false }
   } catch (error) {
-    console.log('[v0] Demo mode: created habit', name)
-    // Return demo habit on error
-    return {
-      id: `h${Date.now()}`,
-      user_id: 'demo',
-      name,
-      frequency,
-      created_at: new Date().toISOString(),
-    }
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Database/Supabase Error:', error)
+    return { error: message }
   }
 }
 
@@ -77,8 +61,7 @@ export async function deleteHabit(habitId: string) {
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      console.log('[v0] Demo mode: deleted habit', habitId)
-      return
+      return { isGuest: true }
     }
 
     const { error } = await supabase
@@ -88,27 +71,38 @@ export async function deleteHabit(habitId: string) {
       .eq('user_id', user.id)
 
     if (error) throw error
+    return { success: true, isGuest: false }
   } catch (error) {
-    console.log('[v0] Demo mode: deleted habit', habitId)
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Database/Supabase Error:', error)
+    return { error: message }
   }
 }
 
 export async function getHabitLogs(habitId: string, startDate: Date, endDate: Date) {
-  const supabase = await createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  try {
+    const supabase = await createClient()
+    
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { data: [], isGuest: true }
+    }
 
-  const { data, error } = await supabase
-    .from('habit_logs')
-    .select('*')
-    .eq('habit_id', habitId)
-    .eq('user_id', user.id)
-    .gte('completed_date', startDate.toISOString().split('T')[0])
-    .lte('completed_date', endDate.toISOString().split('T')[0])
+    const { data, error } = await supabase
+      .from('habit_logs')
+      .select('*')
+      .eq('habit_id', habitId)
+      .eq('user_id', user.id)
+      .gte('completed_date', startDate.toISOString().split('T')[0])
+      .lte('completed_date', endDate.toISOString().split('T')[0])
 
-  if (error) throw error
-  return data
+    if (error) throw error
+    return { data: data || [], isGuest: false }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Database/Supabase Error:', error)
+    return { error: message }
+  }
 }
 
 export async function logHabitCompletion(habitId: string, date: Date) {
@@ -117,8 +111,7 @@ export async function logHabitCompletion(habitId: string, date: Date) {
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      console.log('[v0] Demo mode: toggled habit', habitId)
-      return { completed: true }
+      return { isGuest: true }
     }
 
     const dateStr = date.toISOString().split('T')[0]
@@ -140,7 +133,7 @@ export async function logHabitCompletion(habitId: string, date: Date) {
         .eq('id', existing.id)
 
       if (error) throw error
-      return { completed: false }
+      return { completed: false, isGuest: false }
     }
 
     // Add new log
@@ -155,10 +148,11 @@ export async function logHabitCompletion(habitId: string, date: Date) {
       ])
 
     if (error) throw error
-    return { completed: true }
+    return { completed: true, isGuest: false }
   } catch (error) {
-    console.log('[v0] Demo mode: toggled habit', habitId)
-    return { completed: true }
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Database/Supabase Error:', error)
+    return { error: message }
   }
 }
 
@@ -167,7 +161,9 @@ export async function getAllHabitLogs(startDate: Date, endDate: Date) {
     const supabase = await createClient()
     
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return []
+    if (!user) {
+      return { data: [], isGuest: true }
+    }
 
     const { data, error } = await supabase
       .from('habit_logs')
@@ -177,9 +173,10 @@ export async function getAllHabitLogs(startDate: Date, endDate: Date) {
       .lte('completed_date', endDate.toISOString().split('T')[0])
 
     if (error) throw error
-    return data || []
+    return { data: data || [], isGuest: false }
   } catch (error) {
-    console.log('[v0] Demo mode: returned empty logs')
-    return []
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Database/Supabase Error:', error)
+    return { error: message }
   }
 }
