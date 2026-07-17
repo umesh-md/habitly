@@ -4,6 +4,7 @@ import { CheckCircle2, Flame, TrendingUp } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { AddHabitDialog } from "@/components/add-habit-dialog"
 import { ErrorAlert } from "@/components/error-alert"
+import { GuestBanner } from "@/components/guest-banner"
 import { HabitRow } from "@/components/habit-row"
 import { ProgressRing } from "@/components/progress-ring"
 import { WeeklyCalendar } from "@/components/weekly-calendar"
@@ -19,6 +20,10 @@ import {
   deleteHabit,
   logHabitCompletion,
 } from "@/lib/actions/habits"
+import {
+  loadGuestHabits,
+  saveGuestHabits,
+} from "@/lib/auth-storage"
 
 export function HabitDashboard() {
   const today = useMemo(() => {
@@ -33,12 +38,20 @@ export function HabitDashboard() {
   const [timeOfDay, setTimeOfDay] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isGuest, setIsGuest] = useState(false)
 
-  // Load initial habits and logs from Supabase
+  // Load initial habits
   useEffect(() => {
     loadHabits()
     setTimeOfDay(greeting())
   }, [])
+
+  // Save guest habits to localStorage
+  useEffect(() => {
+    if (isGuest && habits.length > 0) {
+      saveGuestHabits(habits)
+    }
+  }, [habits, isGuest])
 
   async function loadHabits() {
     try {
@@ -49,6 +62,16 @@ export function HabitDashboard() {
       if ('error' in habitsResult && habitsResult.error) {
         setError(habitsResult.error)
         setHabits([])
+        return
+      }
+
+      const isGuestMode = habitsResult.isGuest
+      setIsGuest(isGuestMode)
+      
+      if (isGuestMode) {
+        // Load habits from localStorage for guests
+        const guestHabits = loadGuestHabits()
+        setHabits(guestHabits)
         return
       }
       
@@ -76,7 +99,7 @@ export function HabitDashboard() {
         return {
           id: h.id,
           name: h.name,
-          icon: "💪", // Default icon - could be stored in DB
+          icon: "💪",
           completed,
           createdAt: h.created_at,
         }
@@ -120,12 +143,35 @@ export function HabitDashboard() {
 
   async function toggleHabit(id: string) {
     try {
-      const result = await logHabitCompletion(id, selected)
-      if ('error' in result && result.error) {
-        setError(result.error)
-        return
+      if (isGuest) {
+        // Guest mode: update locally
+        setHabits((prev) => {
+          return prev.map((h) => {
+            if (h.id !== id) return h
+            const key = dateKey(selected)
+            const isCompleted = h.completed.includes(key)
+            return {
+              ...h,
+              completed: isCompleted
+                ? h.completed.filter((k) => k !== key)
+                : [...h.completed, key],
+            }
+          })
+        })
+      } else {
+        // Database mode: sync with server
+        const result = await logHabitCompletion(id, selected)
+        if ('error' in result && result.error) {
+          setError(result.error)
+          return
+        }
+        if ('isGuest' in result && result.isGuest) {
+          setIsGuest(true)
+          toggleHabit(id)
+          return
+        }
+        await loadHabits()
       }
-      await loadHabits()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       console.error("[v0] Error toggling habit:", error)
@@ -135,12 +181,30 @@ export function HabitDashboard() {
 
   async function addHabit(name: string) {
     try {
-      const result = await createHabit(name, "daily")
-      if ('error' in result && result.error) {
-        setError(result.error)
-        return
+      if (isGuest) {
+        // Guest mode: add locally
+        const newHabit: Habit = {
+          id: `h${Date.now()}`,
+          name,
+          icon: "💪",
+          completed: [],
+          createdAt: dateKey(today),
+        }
+        setHabits((prev) => [newHabit, ...prev])
+      } else {
+        // Database mode: sync with server
+        const result = await createHabit(name, "daily")
+        if ('error' in result && result.error) {
+          setError(result.error)
+          return
+        }
+        if ('isGuest' in result && result.isGuest) {
+          setIsGuest(true)
+          addHabit(name)
+          return
+        }
+        await loadHabits()
       }
-      await loadHabits()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       console.error("[v0] Error adding habit:", error)
@@ -150,12 +214,23 @@ export function HabitDashboard() {
 
   async function deleteHabitFn(id: string) {
     try {
-      const result = await deleteHabit(id)
-      if ('error' in result && result.error) {
-        setError(result.error)
-        return
+      if (isGuest) {
+        // Guest mode: delete locally
+        setHabits((prev) => prev.filter((h) => h.id !== id))
+      } else {
+        // Database mode: sync with server
+        const result = await deleteHabit(id)
+        if ('error' in result && result.error) {
+          setError(result.error)
+          return
+        }
+        if ('isGuest' in result && result.isGuest) {
+          setIsGuest(true)
+          deleteHabitFn(id)
+          return
+        }
+        await loadHabits()
       }
-      await loadHabits()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       console.error("[v0] Error deleting habit:", error)
@@ -176,125 +251,128 @@ export function HabitDashboard() {
     : selected.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-10">
-      {error && (
-        <ErrorAlert
-          error={error}
-          onDismiss={() => setError(null)}
-          title="Database Error"
-        />
-      )}
+    <>
+      {isGuest && <GuestBanner />}
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-10">
+        {error && (
+          <ErrorAlert
+            error={error}
+            onDismiss={() => setError(null)}
+            title="Error"
+          />
+        )}
 
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-brand">Cadence</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground text-balance sm:text-3xl">
-            {timeOfDay ? `Good ${timeOfDay}, ` : ""}let&apos;s build momentum
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {today.toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
-          </p>
-        </div>
-        <AddHabitDialog onAdd={addHabit} />
-      </header>
-
-      <WeeklyCalendar
-        reference={weekRef}
-        selected={selected}
-        today={today}
-        habits={habits}
-        onSelect={setSelected}
-        onShiftWeek={shiftWeek}
-      />
-
-      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
-        <section aria-label="Habits" className="order-2 flex flex-col gap-3 lg:order-1">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">
-              {selectedLabel}&apos;s habits
-            </h2>
-            <span className="text-xs text-muted-foreground">
-              {doneCount} of {habits.length} done
-            </span>
-          </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-card py-14">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand border-transparent border-t-brand" />
-              <p className="text-sm text-muted-foreground">Loading habits...</p>
-            </div>
-          ) : habits.length > 0 ? (
-            <ul className="flex flex-col gap-2.5">
-              {habits.map((habit) => {
-                const key = dateKey(selected)
-                const completed = habit.completed.includes(key)
-                return (
-                  <HabitRow
-                    key={habit.id}
-                    habit={habit}
-                    completed={completed}
-                    onToggle={() => toggleHabit(habit.id)}
-                    onDelete={() => deleteHabitFn(habit.id)}
-                  />
-                )
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-widest text-brand">Cadence</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground text-balance sm:text-3xl">
+              {timeOfDay ? `Good ${timeOfDay}, ` : ""}let&apos;s build momentum
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {today.toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
               })}
-            </ul>
-          ) : (
-            <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-card py-14 text-center">
-              <p className="text-sm font-medium text-foreground">No habits yet</p>
-              <p className="max-w-xs text-sm text-muted-foreground">
-                Add your first habit to start tracking your daily progress.
-              </p>
-            </div>
-          )}
-        </section>
-
-        <aside className="order-1 flex flex-col gap-4 lg:order-2">
-          <section
-            aria-label="Completion progress"
-            className="flex flex-col items-center gap-4 rounded-2xl border border-border bg-card p-6"
-          >
-            <ProgressRing value={rate} label={selectedIsToday ? "Today" : selectedLabel} />
-            <p className="text-center text-sm text-muted-foreground text-pretty">
-              {rate === 100 && habits.length > 0
-                ? "Every habit complete. Incredible work!"
-                : `${doneCount} of ${habits.length} habits complete${selectedIsToday ? " today" : ""}.`}
             </p>
+          </div>
+          <AddHabitDialog onAdd={addHabit} />
+        </header>
+
+        <WeeklyCalendar
+          reference={weekRef}
+          selected={selected}
+          today={today}
+          habits={habits}
+          onSelect={setSelected}
+          onShiftWeek={shiftWeek}
+        />
+
+        <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+          <section aria-label="Habits" className="order-2 flex flex-col gap-3 lg:order-1">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-foreground">
+                {selectedLabel}&apos;s habits
+              </h2>
+              <span className="text-xs text-muted-foreground">
+                {doneCount} of {habits.length} done
+              </span>
+            </div>
+
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-card py-14">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand border-transparent border-t-brand" />
+                <p className="text-sm text-muted-foreground">Loading habits...</p>
+              </div>
+            ) : habits.length > 0 ? (
+              <ul className="flex flex-col gap-2.5">
+                {habits.map((habit) => {
+                  const key = dateKey(selected)
+                  const completed = habit.completed.includes(key)
+                  return (
+                    <HabitRow
+                      key={habit.id}
+                      habit={habit}
+                      completed={completed}
+                      onToggle={() => toggleHabit(habit.id)}
+                      onDelete={() => deleteHabitFn(habit.id)}
+                    />
+                  )
+                })}
+              </ul>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-card py-14 text-center">
+                <p className="text-sm font-medium text-foreground">No habits yet</p>
+                <p className="max-w-xs text-sm text-muted-foreground">
+                  Add your first habit to start tracking your daily progress.
+                </p>
+              </div>
+            )}
           </section>
 
-          <div className="grid grid-cols-2 gap-4">
-            <StatCard
-              icon={<Flame className="size-4 text-brand" />}
-              label="Best streak"
-              value={`${bestStreak}`}
-              unit="days"
-            />
-            <StatCard
-              icon={<CheckCircle2 className="size-4 text-brand" />}
-              label="Done today"
-              value={`${habits.filter((h) => h.completed.includes(dateKey(today))).length}`}
-              unit={`/ ${habits.length}`}
-            />
-            <StatCard
-              icon={<TrendingUp className="size-4 text-brand" />}
-              label="Active habits"
-              value={`${habits.length}`}
-              unit="tracked"
-            />
-            <StatCard
-              icon={<CheckCircle2 className="size-4 text-brand" />}
-              label="Today's rate"
-              value={`${habits.length > 0 ? Math.round((habits.filter((h) => h.completed.includes(dateKey(today))).length / habits.length) * 100) : 0}`}
-              unit="%"
-            />
-          </div>
-        </aside>
+          <aside className="order-1 flex flex-col gap-4 lg:order-2">
+            <section
+              aria-label="Completion progress"
+              className="flex flex-col items-center gap-4 rounded-2xl border border-border bg-card p-6"
+            >
+              <ProgressRing value={rate} label={selectedIsToday ? "Today" : selectedLabel} />
+              <p className="text-center text-sm text-muted-foreground text-pretty">
+                {rate === 100 && habits.length > 0
+                  ? "Every habit complete. Incredible work!"
+                  : `${doneCount} of ${habits.length} habits complete${selectedIsToday ? " today" : ""}.`}
+              </p>
+            </section>
+
+            <div className="grid grid-cols-2 gap-4">
+              <StatCard
+                icon={<Flame className="size-4 text-brand" />}
+                label="Best streak"
+                value={`${bestStreak}`}
+                unit="days"
+              />
+              <StatCard
+                icon={<CheckCircle2 className="size-4 text-brand" />}
+                label="Done today"
+                value={`${habits.filter((h) => h.completed.includes(dateKey(today))).length}`}
+                unit={`/ ${habits.length}`}
+              />
+              <StatCard
+                icon={<TrendingUp className="size-4 text-brand" />}
+                label="Active habits"
+                value={`${habits.length}`}
+                unit="tracked"
+              />
+              <StatCard
+                icon={<CheckCircle2 className="size-4 text-brand" />}
+                label="Today's rate"
+                value={`${habits.length > 0 ? Math.round((habits.filter((h) => h.completed.includes(dateKey(today))).length / habits.length) * 100) : 0}`}
+                unit="%"
+              />
+            </div>
+          </aside>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 

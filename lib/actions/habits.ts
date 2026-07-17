@@ -8,9 +8,7 @@ export async function getHabits() {
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      const err = new Error('User not authenticated')
-      console.error('Database/Supabase Error:', err)
-      return { error: err.message }
+      return { data: [], isGuest: true }
     }
 
     const { data, error } = await supabase
@@ -20,7 +18,7 @@ export async function getHabits() {
       .order('created_at', { ascending: false })
 
     if (error) throw error
-    return { data: data || [] }
+    return { data: data || [], isGuest: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('Database/Supabase Error:', error)
@@ -34,9 +32,7 @@ export async function createHabit(name: string, frequency: string = 'daily') {
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      const err = new Error('User not authenticated')
-      console.error('Database/Supabase Error:', err)
-      return { error: err.message }
+      return { isGuest: true }
     }
 
     const { data, error } = await supabase
@@ -51,7 +47,7 @@ export async function createHabit(name: string, frequency: string = 'daily') {
       .select()
 
     if (error) throw error
-    return { data: data?.[0] }
+    return { data: data?.[0], isGuest: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('Database/Supabase Error:', error)
@@ -65,9 +61,7 @@ export async function deleteHabit(habitId: string) {
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      const err = new Error('User not authenticated')
-      console.error('Database/Supabase Error:', err)
-      return { error: err.message }
+      return { isGuest: true }
     }
 
     const { error } = await supabase
@@ -77,7 +71,7 @@ export async function deleteHabit(habitId: string) {
       .eq('user_id', user.id)
 
     if (error) throw error
-    return { success: true }
+    return { success: true, isGuest: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('Database/Supabase Error:', error)
@@ -91,9 +85,7 @@ export async function getHabitLogs(habitId: string, startDate: Date, endDate: Da
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      const err = new Error('User not authenticated')
-      console.error('Database/Supabase Error:', err)
-      return { error: err.message }
+      return { data: [], isGuest: true }
     }
 
     const { data, error } = await supabase
@@ -105,7 +97,7 @@ export async function getHabitLogs(habitId: string, startDate: Date, endDate: Da
       .lte('completed_date', endDate.toISOString().split('T')[0])
 
     if (error) throw error
-    return { data: data || [] }
+    return { data: data || [], isGuest: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('Database/Supabase Error:', error)
@@ -119,9 +111,7 @@ export async function logHabitCompletion(habitId: string, date: Date) {
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      const err = new Error('User not authenticated')
-      console.error('Database/Supabase Error:', err)
-      return { error: err.message }
+      return { isGuest: true }
     }
 
     const dateStr = date.toISOString().split('T')[0]
@@ -143,7 +133,7 @@ export async function logHabitCompletion(habitId: string, date: Date) {
         .eq('id', existing.id)
 
       if (error) throw error
-      return { completed: false }
+      return { completed: false, isGuest: false }
     }
 
     // Add new log
@@ -158,7 +148,7 @@ export async function logHabitCompletion(habitId: string, date: Date) {
       ])
 
     if (error) throw error
-    return { completed: true }
+    return { completed: true, isGuest: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('Database/Supabase Error:', error)
@@ -172,9 +162,7 @@ export async function getAllHabitLogs(startDate: Date, endDate: Date) {
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      const err = new Error('User not authenticated')
-      console.error('Database/Supabase Error:', err)
-      return { error: err.message }
+      return { data: [], isGuest: true }
     }
 
     const { data, error } = await supabase
@@ -185,7 +173,7 @@ export async function getAllHabitLogs(startDate: Date, endDate: Date) {
       .lte('completed_date', endDate.toISOString().split('T')[0])
 
     if (error) throw error
-    return { data: data || [] }
+    return { data: data || [], isGuest: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('Database/Supabase Error:', error)
