@@ -3,11 +3,11 @@
 import { CheckCircle2, Flame, TrendingUp } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { AddHabitDialog } from "@/components/add-habit-dialog"
+import { ErrorAlert } from "@/components/error-alert"
 import { HabitRow } from "@/components/habit-row"
 import { ProgressRing } from "@/components/progress-ring"
 import { WeeklyCalendar } from "@/components/weekly-calendar"
 import {
-  createInitialHabits,
   dateKey,
   isSameDay,
   type Habit,
@@ -32,6 +32,7 @@ export function HabitDashboard() {
   const [weekRef, setWeekRef] = useState<Date>(today)
   const [timeOfDay, setTimeOfDay] = useState<string>("")
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   // Load initial habits and logs from Supabase
   useEffect(() => {
@@ -42,12 +43,29 @@ export function HabitDashboard() {
   async function loadHabits() {
     try {
       setLoading(true)
-      const dbHabits = await getHabits()
+      setError(null)
+      
+      const habitsResult = await getHabits()
+      if ('error' in habitsResult && habitsResult.error) {
+        setError(habitsResult.error)
+        setHabits([])
+        return
+      }
+      
+      const dbHabits = habitsResult.data || []
       
       // Get the last 30 days of logs
       const thirtyDaysAgo = new Date(today)
       thirtyDaysAgo.setDate(today.getDate() - 30)
-      const logs = await getAllHabitLogs(thirtyDaysAgo, today)
+      const logsResult = await getAllHabitLogs(thirtyDaysAgo, today)
+      
+      if ('error' in logsResult && logsResult.error) {
+        setError(logsResult.error)
+        setHabits([])
+        return
+      }
+      
+      const logs = logsResult.data || []
       
       // Map Supabase habits to app format
       const habitsWithLogs: Habit[] = dbHabits.map((h: any) => {
@@ -66,9 +84,10 @@ export function HabitDashboard() {
       
       setHabits(habitsWithLogs)
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
       console.error("[v0] Error loading habits:", error)
-      // Fall back to demo data if not authenticated
-      setHabits(createInitialHabits())
+      setError(message)
+      setHabits([])
     } finally {
       setLoading(false)
     }
@@ -101,28 +120,46 @@ export function HabitDashboard() {
 
   async function toggleHabit(id: string) {
     try {
-      await logHabitCompletion(id, selected)
+      const result = await logHabitCompletion(id, selected)
+      if ('error' in result && result.error) {
+        setError(result.error)
+        return
+      }
       await loadHabits()
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
       console.error("[v0] Error toggling habit:", error)
+      setError(message)
     }
   }
 
   async function addHabit(name: string) {
     try {
-      await createHabit(name, "daily")
+      const result = await createHabit(name, "daily")
+      if ('error' in result && result.error) {
+        setError(result.error)
+        return
+      }
       await loadHabits()
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
       console.error("[v0] Error adding habit:", error)
+      setError(message)
     }
   }
 
   async function deleteHabitFn(id: string) {
     try {
-      await deleteHabit(id)
+      const result = await deleteHabit(id)
+      if ('error' in result && result.error) {
+        setError(result.error)
+        return
+      }
       await loadHabits()
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
       console.error("[v0] Error deleting habit:", error)
+      setError(message)
     }
   }
 
@@ -140,6 +177,14 @@ export function HabitDashboard() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-10">
+      {error && (
+        <ErrorAlert
+          error={error}
+          onDismiss={() => setError(null)}
+          title="Database Error"
+        />
+      )}
+
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-brand">Cadence</p>
